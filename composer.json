@@ -1,0 +1,69 @@
+{
+    "name": "smstunnel/laravel-notification-channel",
+    "description": "SMSTunnel notification channel for Laravel: send notifications as texts from your own Android phone, from your own number.",
+    "type": "library",
+    "keywords": [
+        "laravel",
+        "notification",
+        "notification channel",
+        "sms",
+        "smstunnel",
+        "android",
+        "verification code"
+    ],
+    "homepage": "https://smstunnel.io",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Narcis Bodea",
+            "email": "contact@narboweb.ro",
+            "homepage": "https://smstunnel.io",
+            "role": "Developer"
+        }
+    ],
+    "support": {
+        "email": "contact@narboweb.ro",
+        "docs": "https://smstunnel.io"
+    },
+    "require": {
+        "php": "^8.1",
+        "illuminate/notifications": "^10.0 || ^11.0 || ^12.0 || ^13.0",
+        "illuminate/support": "^10.0 || ^11.0 || ^12.0 || ^13.0",
+        "smstunnel/smstunnel-php": "^1.0"
+    },
+    "require-dev": {
+        "laravel/pint": "^1.13",
+        "orchestra/testbench": "^8.0 || ^9.0 || ^10.0 || ^11.0",
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^10.5 || ^11.5 || ^12.5 || ^13.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "NotificationChannels\\SmsTunnel\\": "src"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "NotificationChannels\\SmsTunnel\\Tests\\": "tests"
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "test:e2e": "phpunit --group e2e",
+        "analyse": "phpstan analyse --memory-limit=1G",
+        "format": "pint",
+        "format:check": "pint --test"
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "NotificationChannels\\SmsTunnel\\SmsTunnelServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

@@ -1,0 +1,10 @@
+# Keep tests and dev tooling out of the package that Composer installs.
+* text=auto eol=lf
+
+/.github            export-ignore
+/tests              export-ignore
+/.gitattributes     export-ignore
+/.gitignore         export-ignore
+/phpstan.neon.dist  export-ignore
+/phpunit.xml.dist   export-ignore
+/pint.json          export-ignore
