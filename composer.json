@@ -1,5 +1,5 @@
 {
-    "name": "smstunnel/laravel-notification-channel",
+    "name": "smstunnel/smstunnel-laravel",
     "description": "SMSTunnel notification channel for Laravel: send notifications as texts from your own Android phone, from your own number.",
     "type": "library",
     "keywords": [

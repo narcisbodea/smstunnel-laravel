@@ -1,6 +1,6 @@
 # SMSTunnel notification channel for Laravel
 
-`smstunnel/laravel-notification-channel` sends Laravel notifications as texts with **[SMSTunnel](https://smstunnel.io)**: from **your own Android phone**, from **your own number**. It works with Laravel 10, 11, 12 and 13.
+`smstunnel/smstunnel-laravel` sends Laravel notifications as texts with **[SMSTunnel](https://smstunnel.io)**: from **your own Android phone**, from **your own number**. It works with Laravel 10, 11, 12 and 13.
 
 ```php
 $user->notify(new OrderShipped($order));
@@ -33,7 +33,7 @@ Your phone needs the SMSTunnel app from Google Play:
 ## Installation
 
 ```bash
-composer require smstunnel/laravel-notification-channel
+composer require smstunnel/smstunnel-laravel
 ```
 
 The service provider is registered automatically (package discovery). It also installs [`smstunnel/smstunnel-php`](https://packagist.org/packages/smstunnel/smstunnel-php), the PHP client it builds on. PHP 8.1 or newer.
