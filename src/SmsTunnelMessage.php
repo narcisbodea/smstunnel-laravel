@@ -48,7 +48,7 @@ class SmsTunnelMessage
         return $this;
     }
 
-    /** E.g. `+40`: completes numbers given without `+` or `00`. The phone's own setting wins when it has one. */
+    /** E.g. `+40`: completes numbers given without `+` or `00`. It always takes precedence over the phone's own setting. */
     public function defaultCountryCode(?string $defaultCountryCode): static
     {
         $this->defaultCountryCode = $defaultCountryCode;

@@ -23,6 +23,7 @@ Your phone needs the SMSTunnel app from Google Play:
   - [Failures](#failures)
   - [The client on its own](#the-client-on-its-own)
 - [Notes and limits](#notes-and-limits)
+- [Build it with an AI assistant](#build-it-with-an-ai-assistant)
 - [Responsible use](#responsible-use)
 - [Changelog](#changelog)
 - [Testing](#testing)
@@ -182,6 +183,59 @@ To send through your own HTTP client (proxy, logging), bind an `SmsTunnel\Transp
 - **Rate limit**: sending allows 30 requests a minute.
 - **Length**: up to 1600 characters; verification codes up to 320.
 - **Offline phone**: the text waits on your account and goes out when the phone is back online (`SendResult::$queued` is `true`).
+
+## Build it with an AI assistant
+
+Paste this into Claude, ChatGPT, Cursor or Copilot and replace the part in brackets. Don't paste your API key into the chat: the prompt doesn't need it.
+
+```text
+Help me send Laravel notifications as text messages with SMSTunnel.
+
+About SMSTunnel (https://smstunnel.io): my own apps and tools hand text messages (SMS) to my
+SMSTunnel account, and my own Android phone sends them from my own number, on my own SIM and plan.
+The phone runs the SMSTunnel app from Google Play
+(https://play.google.com/store/apps/details?id=io.smstunnel.app), signed in to my account.
+
+What I want: [describe what should send a text, to whom, and when]
+
+How it works:
+- Install the notification channel: composer require smstunnel/smstunnel-laravel (Laravel 10 to 13,
+  PHP 8.1+). The service provider registers itself and installs the PHP client
+  smstunnel/smstunnel-php.
+- config/services.php: 'smstunnel' => ['key' => env('SMSTUNNEL_API_KEY'), 'device_id' =>
+  env('SMSTUNNEL_DEVICE_ID'), 'default_country_code' => env('SMSTUNNEL_DEFAULT_COUNTRY_CODE')]; the
+  key goes in .env as SMSTUNNEL_API_KEY.
+- In a notification, via() returns ['smstunnel'] and toSmsTunnel(object $notifiable) returns
+  NotificationChannels\SmsTunnel\SmsTunnelMessage::create('...') or a plain string; message methods
+  content(), deviceId(), defaultCountryCode(), verificationCode().
+- The notifiable's routeNotificationForSmstunnel(Notification $notification): ?string returns the
+  number in international format; null or '' skips it, a list gets one text per number. Not a user:
+  Notification::route('smstunnel', '+14155550123')->notify(...).
+- Sign-in codes: SmsTunnelMessage::create("Your sign-in code is {$code}")->verificationCode(); the
+  text must contain the code as 4 to 10 digits (or 123-456), up to 320 characters.
+- Failures dispatch Illuminate\Notifications\Events\NotificationFailed (data: message, exception,
+  to) and rethrow, all under SmsTunnel\Exception\SmsTunnelException: AuthenticationException 401,
+  PermissionException 403, RateLimitException 429 (getRetryAfter()), ApiException (400, 5xx),
+  TransportException (network). Use ShouldQueue so a queue retries; with a list of numbers, a retry
+  texts all of them again.
+- defaultCountryCode (e.g. +44) completes numbers written without + or 00 and always takes
+  precedence over the phone's own country setting. Texts up to 1600 characters; 30 send requests a
+  minute. If the phone is offline, the text waits and goes out when it is back.
+- The API key comes from my SMSTunnel dashboard (https://dashboard.smstunnel.io): Apps → Add an app
+  → Create the key. It is shown only once and can send texts and check whether they went out.
+
+Rules for your answer:
+- Keep the API key in an environment variable or the platform's secret store (for example
+  SMSTUNNEL_API_KEY). Never put it in source code, in a repository, or in code that runs in a
+  browser or a mobile app: call SMSTunnel from a server. I will not paste my key in this chat; use a
+  placeholder.
+- Validate phone numbers before sending (international format, like +14155550123) and skip or report
+  the invalid ones.
+- Handle errors: log or show what went wrong, retry only after 429, 5xx or network errors and only a
+  few times, and never send the same text twice.
+- Only send texts people expect from me: alerts to myself, reminders, sign-in codes, updates they
+  asked for. No unsolicited texts.
+```
 
 ## Responsible use
 
