@@ -40,8 +40,8 @@ The service provider is registered automatically (package discovery). It also in
 
 ### Setting up SMSTunnel
 
-1. Install the [SMSTunnel app from Google Play](https://play.google.com/store/apps/details?id=io.smstunnel.app) on your Android phone and sign in. Sign in at [smstunnel.io](https://smstunnel.io) on your computer with the same account: the phone appears under **Devices** (you can also link it with the QR code from **Devices → Add Device**).
-2. In your SMSTunnel dashboard, create an API key with the `sms:send` permission (add `sms:read` if you also want to look up delivery statuses).
+1. Install the [SMSTunnel app from Google Play](https://play.google.com/store/apps/details?id=io.smstunnel.app) on your Android phone and sign in. Sign in at [smstunnel.io](https://smstunnel.io) on your computer with the same account: the phone appears under **Phones** (you can also link it with the QR code from **Phones → Add phone**).
+2. In your SMSTunnel dashboard, open **Apps** → **Add an app** and create its key. The key can send texts and look up whether they went out (`sms:send` and `sms:read`).
 3. Add it to `config/services.php`:
 
 ```php
@@ -131,7 +131,7 @@ public function toSmsTunnel(object $notifiable): SmsTunnelMessage
 }
 ```
 
-SMSTunnel checks that the text contains the code (such as `482913` or `12-345678`) and refuses it otherwise. Codes count against a separate quota, and the text can be up to 320 characters.
+SMSTunnel checks that the text contains the code, 4 to 10 digits (such as `482913`, `123-456` or `12-345678`), and refuses it otherwise. Codes count against a separate quota, and the text can be up to 320 characters.
 
 ### Several numbers
 
