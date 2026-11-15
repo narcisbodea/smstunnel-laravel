@@ -31,6 +31,9 @@ class SmsTunnelMessage
      */
     public string|false|null $idempotencyKey = null;
 
+    /** When SMSTunnel hands the text to your phone instead of now; null sends it now. */
+    public \DateTimeInterface|string|null $sendAt = null;
+
     public function __construct(public string $content = '') {}
 
     public static function create(string $content = ''): static
@@ -76,6 +79,19 @@ class SmsTunnelMessage
     public function isVerificationCode(): bool
     {
         return $this->verificationCode;
+    }
+
+    /**
+     * Send the text at this time instead of now, 1 minute to 30 days ahead: SMSTunnel keeps it and hands it to your
+     * phone then. A `\DateTimeInterface` (Carbon too) goes out with its own offset, so make it in the time zone you
+     * mean; a string must be ISO 8601 with an offset, such as `2026-11-16T09:00:00+02:00`. Null sends it now.
+     * Verification codes can't be scheduled.
+     */
+    public function sendAt(\DateTimeInterface|string|null $sendAt): static
+    {
+        $this->sendAt = $sendAt;
+
+        return $this;
     }
 
     /**

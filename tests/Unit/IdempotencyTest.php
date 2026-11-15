@@ -291,10 +291,17 @@ final class IdempotencyTest extends TestCase
     /**
      * The key the channel makes: a SHA-256 of the JSON array of the message's key and what SMSTunnel compares.
      */
-    private static function keyFor(string $key, string $number, string $text, ?string $deviceId = null, ?string $defaultCountryCode = null, string $kind = 'sms'): string
-    {
+    public static function keyFor(
+        string $key,
+        string $number,
+        string $text,
+        ?string $deviceId = null,
+        ?string $defaultCountryCode = null,
+        string $kind = 'sms',
+        ?string $sendAt = null,
+    ): string {
         return hash('sha256', json_encode(
-            [$key, $number, $text, $deviceId, $defaultCountryCode, $kind],
+            [$key, $number, $text, $deviceId, $defaultCountryCode, $kind, $sendAt],
             \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES | \JSON_THROW_ON_ERROR,
         ));
     }

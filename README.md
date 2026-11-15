@@ -19,6 +19,7 @@ Your phone needs the SMSTunnel app from Google Play:
 - [Usage](#usage)
   - [Available message methods](#available-message-methods)
   - [Verification codes](#verification-codes)
+  - [Scheduled texts](#scheduled-texts)
   - [Several numbers](#several-numbers)
   - [Failures](#failures)
   - [Retrying safely](#retrying-safely)
@@ -123,6 +124,7 @@ Notifications that implement `ShouldQueue` are sent from your queue like any oth
 | `deviceId(?string $deviceId)` | Send through this phone instead of `services.smstunnel.device_id`. |
 | `defaultCountryCode(?string $code)` | E.g. `+40`, for numbers given without `+` or `00`. Wins over `services.smstunnel.default_country_code`. |
 | `verificationCode(bool $value = true)` | Send it as a sign-in or verification code (see below). |
+| `sendAt(DateTimeInterface\|string\|null $sendAt)` | Send it at this time instead of now (see [Scheduled texts](#scheduled-texts)). |
 | `idempotencyKey(?string $key)` | Make the text's `Idempotency-Key` from your own key instead of the notification's id (see [Retrying safely](#retrying-safely)). |
 | `withoutIdempotencyKey()` | Send the text without an `Idempotency-Key`, as in 1.0. |
 
@@ -136,6 +138,25 @@ public function toSmsTunnel(object $notifiable): SmsTunnelMessage
 ```
 
 SMSTunnel checks that the text contains the code, 4 to 10 digits (such as `482913`, `123-456` or `12-345678`), and refuses it otherwise. Codes count against a separate quota, and the text can be up to 320 characters.
+
+### Scheduled texts
+
+Give the message a send time, 1 minute to 30 days ahead, and SMSTunnel hands the text to your phone then:
+
+```php
+public function toSmsTunnel(object $notifiable): SmsTunnelMessage
+{
+    return SmsTunnelMessage::create("Reminder: your appointment is tomorrow at {$this->appointment->starts_at->format('H:i')}.")
+        ->sendAt($this->appointment->starts_at->copy()->subDay());
+}
+```
+
+- `sendAt()` takes a `DateTimeInterface` (Carbon too), sent with its own offset, or an ISO 8601 string with an offset, such as `2026-11-16T09:00:00+02:00`.
+- `NotificationSent`'s `response` is then a `SmsTunnel\Response\ScheduledText` (`id`, `sendAt`, `status`) instead of a `SendResult`. Keep the `id` to cancel the text with `app(SmsTunnel\Client::class)->cancelScheduled($id)`; `listScheduled()` and `getScheduled($id)` read them (see [the client's README](https://packagist.org/packages/smstunnel/smstunnel-php)).
+- At that time SMSTunnel sends the text as if your app sent it then, with the same key: it picks the phone then (unless you set one), and the text counts toward that day's allowance. If the phone is offline, the text waits for it up to 3 days.
+- The send time is part of the text's `Idempotency-Key`: make it from the notification's data, like the words, so a retry from your queue schedules the text once.
+- Verification codes can't be scheduled: a message with both fails with `CouldNotSendNotification` before anything is sent.
+- When as many texts wait as your plan allows (10 on Free up to 1000 on Enterprise), the notification fails with a `PermissionException` whose `getErrorCode()` is `SCHEDULE_LIMIT_REACHED`.
 
 ### Several numbers
 
@@ -235,13 +256,17 @@ How it works:
   key goes in .env as SMSTUNNEL_API_KEY.
 - In a notification, via() returns ['smstunnel'] and toSmsTunnel(object $notifiable) returns
   NotificationChannels\SmsTunnel\SmsTunnelMessage::create('...') or a plain string; message methods
-  content(), deviceId(), defaultCountryCode(), verificationCode(), idempotencyKey(),
+  content(), deviceId(), defaultCountryCode(), verificationCode(), sendAt(), idempotencyKey(),
   withoutIdempotencyKey().
 - The notifiable's routeNotificationForSmstunnel(Notification $notification): ?string returns the
   number in international format; null or '' skips it, a list gets one text per number. Not a user:
   Notification::route('smstunnel', '+14155550123')->notify(...).
 - Sign-in codes: SmsTunnelMessage::create("Your sign-in code is {$code}")->verificationCode(); the
   text must contain the code as 4 to 10 digits (or 123-456), up to 320 characters.
+- Scheduled texts: ->sendAt($dateTime) (1 minute to 30 days ahead, a DateTimeInterface or an ISO
+  8601 string with an offset; built from the notification's data) and SMSTunnel sends it then;
+  NotificationSent's response is then a SmsTunnel\Response\ScheduledText (->id for
+  app(SmsTunnel\Client::class)->cancelScheduled($id)). Not for sign-in codes.
 - Failures dispatch Illuminate\Notifications\Events\NotificationFailed (data: message, exception,
   to) and rethrow, all under SmsTunnel\Exception\SmsTunnelException: AuthenticationException 401,
   PermissionException 403, RateLimitException 429 (getRetryAfter()), ApiException (400, 5xx),

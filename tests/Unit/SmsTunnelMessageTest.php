@@ -45,4 +45,15 @@ final class SmsTunnelMessageTest extends TestCase
         self::assertFalse($message->withoutIdempotencyKey()->idempotencyKey, 'false: no key');
         self::assertNull($message->idempotencyKey(null)->idempotencyKey);
     }
+
+    public function test_a_send_time_is_kept_as_given_until_the_channel_sends(): void
+    {
+        $message = SmsTunnelMessage::create('Reminder: your appointment is tomorrow at 10:30.');
+        $when = new \DateTimeImmutable('2026-11-16 09:00', new \DateTimeZone('Europe/Bucharest'));
+
+        self::assertNull($message->sendAt, 'null: now');
+        self::assertSame($when, $message->sendAt($when)->sendAt);
+        self::assertSame('2026-11-16T07:00:00Z', $message->sendAt('2026-11-16T07:00:00Z')->sendAt);
+        self::assertNull($message->sendAt(null)->sendAt);
+    }
 }

@@ -3,6 +3,25 @@
 All notable changes to `smstunnel/smstunnel-laravel` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - Unreleased
+
+### Added
+
+- **Scheduled texts.** `SmsTunnelMessage::sendAt(DateTimeInterface|string|null $sendAt)`: send the text at that time
+  instead of now, 1 minute to 30 days ahead. A `DateTimeInterface` (Carbon too) goes out with its own offset, a string
+  must be ISO 8601 with an offset. The channel passes it to `smstunnel/smstunnel-php`'s `sendSms()`, and the
+  `NotificationSent` event's `response` is then a `SmsTunnel\Response\ScheduledText` (`id`, `sendAt`, `status`,
+  `replayed`) instead of a `SendResult`.
+- The send time is part of each text's `Idempotency-Key`, like the words: a queue retry of the same scheduled text
+  schedules it once.
+
+### Changed
+
+- Requires `smstunnel/smstunnel-php` 1.2.
+- `SmsTunnelChannel::send()` and `sendText()` may return a `ScheduledText`; their return types now include it.
+- A verification code with a send time fails with `CouldNotSendNotification` before anything is sent: sign-in codes
+  can't be scheduled.
+
 ## [1.1.0] - 2026-11-09
 
 ### Added

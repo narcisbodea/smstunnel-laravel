@@ -12,7 +12,8 @@ use SmsTunnel\Transport\TransportInterface;
  * Stands in for SMSTunnel: answers every send with a new message id (or a queued error) and keeps the requests.
  *
  * Like SMSTunnel, it answers a repeat of an `Idempotency-Key` with the first answer instead of sending a new text,
- * and refuses the same key with other words or another number (422 IDEMPOTENCY_KEY_REUSED).
+ * and refuses the same key with other words or another number (422 IDEMPOTENCY_KEY_REUSED). A send with `sendAt` is
+ * kept as a scheduled text and answered as SMSTunnel does.
  */
 final class FakeTransport implements TransportInterface
 {
@@ -21,6 +22,9 @@ final class FakeTransport implements TransportInterface
 
     /** @var list<string> the message id of every text it sent, a replayed answer not counted */
     public array $texts = [];
+
+    /** @var list<string> the id of every text it scheduled, a replayed answer not counted */
+    public array $scheduled = [];
 
     /** @var array<string, array{int, array<string, mixed>}> number => [status, body] */
     private array $failures = [];
@@ -83,12 +87,33 @@ final class FakeTransport implements TransportInterface
         }
 
         $id = \sprintf('%024x', ++$this->counter);
-        $this->texts[] = $id;
-        $answer = json_encode([
-            'success' => true,
-            'messageId' => $id,
-            'data' => ['messageId' => $id, 'branded' => false, 'remaining' => ['clean' => -1, 'total' => 'unlimited']],
-        ], \JSON_THROW_ON_ERROR);
+        if (isset($json['sendAt'])) {
+            $this->scheduled[] = $id;
+            $answer = json_encode([
+                'success' => true,
+                'scheduled' => true,
+                'scheduledId' => $id,
+                'sendAt' => $json['sendAt'],
+                'data' => [
+                    'id' => $id,
+                    'to' => $to,
+                    'message' => $json['message'] ?? '',
+                    'sendAt' => $json['sendAt'],
+                    'status' => 'scheduled',
+                    'deviceId' => $json['deviceId'] ?? null,
+                    'messageId' => null,
+                    'error' => null,
+                    'createdAt' => '2026-11-15T10:12:44.120Z',
+                ],
+            ], \JSON_THROW_ON_ERROR);
+        } else {
+            $this->texts[] = $id;
+            $answer = json_encode([
+                'success' => true,
+                'messageId' => $id,
+                'data' => ['messageId' => $id, 'branded' => false, 'remaining' => ['clean' => -1, 'total' => 'unlimited']],
+            ], \JSON_THROW_ON_ERROR);
+        }
         if ($key !== null) {
             $this->answers[$key] = [$asked, $answer];
         }

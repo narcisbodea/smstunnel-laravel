@@ -9,18 +9,20 @@ use Illuminate\Notifications\Events\NotificationFailed;
 use Illuminate\Notifications\Notification;
 use NotificationChannels\SmsTunnel\Exceptions\CouldNotSendNotification;
 use SmsTunnel\Client;
+use SmsTunnel\Response\ScheduledText;
 use SmsTunnel\Response\SendResult;
 
 /**
- * Sends a notification as a text from your own phone, through your SMSTunnel account.
+ * Sends a notification as a text from your own phone, through your SMSTunnel account: now, or at the message's
+ * {@see SmsTunnelMessage::sendAt()}.
  *
  * Use it with `via()` returning `['smstunnel']` or `[SmsTunnelChannel::class]`; the notification needs a
  * `toSmsTunnel($notifiable)` method and the notifiable a `routeNotificationForSmstunnel()` method.
  *
  * Every text goes out with an `Idempotency-Key` made from the notification's id (or the message's own key) and what
- * SMSTunnel compares for a repeat: the number, the words, the phone, the country code and the kind of text. Laravel
- * keeps a notification's id when the queue retries it, so for 24 hours a retry of the same text gets the first answer
- * back from SMSTunnel instead of texting the same number twice; a retry with other words is a new text.
+ * SMSTunnel compares for a repeat: the number, the words, the phone, the country code, the kind of text and the send
+ * time. Laravel keeps a notification's id when the queue retries it, so for 24 hours a retry of the same text gets the
+ * first answer back from SMSTunnel instead of texting the same number twice; a retry with other words is a new text.
  */
 class SmsTunnelChannel
 {
@@ -42,11 +44,13 @@ class SmsTunnelChannel
      * Nothing is sent when the route is empty. When a text does not go through, a `NotificationFailed` event
      * is dispatched and the exception is thrown again; with several numbers, the others are still tried first.
      *
-     * @return SendResult|list<SendResult>|null the result, a list of them when the route is a list, or null when there was no number
+     * @return SendResult|ScheduledText|list<SendResult|ScheduledText>|null the result (a {@see ScheduledText} when the
+     *                                                                      message has a send time), a list of them when
+     *                                                                      the route is a list, or null when there was no number
      *
      * @throws \Throwable
      */
-    public function send(mixed $notifiable, Notification $notification): SendResult|array|null
+    public function send(mixed $notifiable, Notification $notification): SendResult|ScheduledText|array|null
     {
         try {
             $route = $this->getRoute($notifiable, $notification);
@@ -56,6 +60,9 @@ class SmsTunnelChannel
             }
 
             $message = $this->withDefaultIdempotencyKey($this->getMessage($notifiable, $notification), $notification);
+            if ($message->sendAt !== null && $message->isVerificationCode()) {
+                throw CouldNotSendNotification::scheduledVerificationCode();
+            }
         } catch (\Throwable $exception) {
             $this->failed($notifiable, $notification, $exception, null);
 
@@ -80,15 +87,30 @@ class SmsTunnelChannel
         return \is_array($route) ? $results : $results[0];
     }
 
-    protected function sendText(string $number, SmsTunnelMessage $message): SendResult
+    protected function sendText(string $number, SmsTunnelMessage $message): SendResult|ScheduledText
     {
         $deviceId = $message->deviceId ?? $this->deviceId;
         $defaultCountryCode = $message->defaultCountryCode ?? $this->defaultCountryCode;
-        $idempotencyKey = $this->idempotencyKeyFor($number, $message, $deviceId, $defaultCountryCode);
+        $sendAt = self::sendAtOf($message);
+        $idempotencyKey = $this->idempotencyKeyFor($number, $message, $deviceId, $defaultCountryCode, $sendAt);
 
         return $message->isVerificationCode()
             ? $this->client->sendVerificationCode($number, $message->content, $deviceId, $defaultCountryCode, $idempotencyKey)
-            : $this->client->sendSms($number, $message->content, $deviceId, $defaultCountryCode, $idempotencyKey);
+            : $this->client->sendSms($number, $message->content, $deviceId, $defaultCountryCode, $idempotencyKey, $sendAt);
+    }
+
+    /**
+     * The message's send time as it goes out, so the key covers exactly that: a `\DateTimeInterface` in RFC 3339 with
+     * its own offset (as the client would send it), a string trimmed (the client checks it), or null to send now.
+     */
+    private static function sendAtOf(SmsTunnelMessage $message): ?string
+    {
+        $sendAt = $message->sendAt;
+        if ($sendAt instanceof \DateTimeInterface) {
+            return $sendAt->format(\DATE_ATOM);
+        }
+
+        return $sendAt === null ? null : trim($sendAt);
     }
 
     /**
@@ -118,13 +140,18 @@ class SmsTunnelChannel
 
     /**
      * The `Idempotency-Key` for one text: a SHA-256 of the message's key and everything SMSTunnel compares for a repeat
-     * (the number, the words, the phone, the country code and the kind of text, as they go out), encoded as a JSON
-     * array so no two of them can run together. Each number of a list gets its own; the same text to the same number
-     * always gets the same one, and other words get another (a new text, not a repeat SMSTunnel would refuse). Null
-     * when the message has no key.
+     * (the number, the words, the phone, the country code, the kind of text and the send time, as they go out), encoded
+     * as a JSON array so no two of them can run together. Each number of a list gets its own; the same text to the same
+     * number always gets the same one, and other words or another time get another (a new text, not a repeat SMSTunnel
+     * would refuse). Null when the message has no key.
      */
-    protected function idempotencyKeyFor(string $number, SmsTunnelMessage $message, ?string $deviceId, ?string $defaultCountryCode): ?string
-    {
+    protected function idempotencyKeyFor(
+        string $number,
+        SmsTunnelMessage $message,
+        ?string $deviceId,
+        ?string $defaultCountryCode,
+        ?string $sendAt = null,
+    ): ?string {
         if (! \is_string($message->idempotencyKey)) {
             return null;
         }
@@ -137,6 +164,7 @@ class SmsTunnelChannel
             self::asSent($deviceId),
             self::asSent($defaultCountryCode),
             $message->isVerificationCode() ? '2fa' : 'sms',
+            $sendAt,
         ], \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES | \JSON_INVALID_UTF8_SUBSTITUTE | \JSON_THROW_ON_ERROR));
     }
 

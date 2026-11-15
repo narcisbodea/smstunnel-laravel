@@ -34,6 +34,14 @@ class CouldNotSendNotification extends \Exception
         ));
     }
 
+    public static function scheduledVerificationCode(): self
+    {
+        return new self(
+            'Notification was not sent. Verification codes can\'t be scheduled: send them when they are asked for. '
+            .'Leave out sendAt() or verificationCode().'
+        );
+    }
+
     /** The number itself stays out of the message, which ends up in logs. */
     public static function invalidNumber(): self
     {
