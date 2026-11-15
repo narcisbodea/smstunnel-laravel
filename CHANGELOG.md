@@ -3,7 +3,7 @@
 All notable changes to `smstunnel/smstunnel-laravel` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
-## [1.2.0] - Unreleased
+## [1.2.0] - 2026-11-15
 
 ### Added
 
@@ -22,7 +22,7 @@ All notable changes to `smstunnel/smstunnel-laravel` are documented here. The fo
 - A verification code with a send time fails with `CouldNotSendNotification` before anything is sent: sign-in codes
   can't be scheduled.
 
-## [1.1.0] - 2026-11-09
+## [1.1.0] - not released on its own (these changes ship in 1.2.0)
 
 ### Added
 
