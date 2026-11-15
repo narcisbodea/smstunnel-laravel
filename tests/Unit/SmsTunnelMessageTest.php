@@ -35,4 +35,14 @@ final class SmsTunnelMessageTest extends TestCase
         self::assertFalse($message->verificationCode(false)->isVerificationCode());
         self::assertNull($message->deviceId(null)->deviceId);
     }
+
+    public function test_the_idempotency_key_is_the_notification_id_unless_set(): void
+    {
+        $message = SmsTunnelMessage::create('Your order #1042 has shipped.');
+
+        self::assertNull($message->idempotencyKey, 'null: made from the notification id');
+        self::assertSame('order-1042-shipped', $message->idempotencyKey('order-1042-shipped')->idempotencyKey);
+        self::assertFalse($message->withoutIdempotencyKey()->idempotencyKey, 'false: no key');
+        self::assertNull($message->idempotencyKey(null)->idempotencyKey);
+    }
 }

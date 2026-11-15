@@ -25,6 +25,12 @@ class SmsTunnelMessage
     /** Send as a sign-in or verification code (the text must contain the code). */
     public bool $verificationCode = false;
 
+    /**
+     * What the text's `Idempotency-Key` is made from, together with the number: your own key, null for the
+     * notification's id (the default), or false to send without one.
+     */
+    public string|false|null $idempotencyKey = null;
+
     public function __construct(public string $content = '') {}
 
     public static function create(string $content = ''): static
@@ -70,5 +76,25 @@ class SmsTunnelMessage
     public function isVerificationCode(): bool
     {
         return $this->verificationCode;
+    }
+
+    /**
+     * Make the text's `Idempotency-Key` from this instead of the notification's id, for example
+     * `"order-{$order->id}-shipped"`: the same order's text then goes out once per number, even when your app sends
+     * the notification twice. Null goes back to the notification's id.
+     */
+    public function idempotencyKey(?string $idempotencyKey): static
+    {
+        $this->idempotencyKey = $idempotencyKey;
+
+        return $this;
+    }
+
+    /** Send the text without an `Idempotency-Key`, as before 1.1: a retry of the notification can text again. */
+    public function withoutIdempotencyKey(): static
+    {
+        $this->idempotencyKey = false;
+
+        return $this;
     }
 }

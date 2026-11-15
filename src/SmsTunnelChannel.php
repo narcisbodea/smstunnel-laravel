@@ -16,6 +16,10 @@ use SmsTunnel\Response\SendResult;
  *
  * Use it with `via()` returning `['smstunnel']` or `[SmsTunnelChannel::class]`; the notification needs a
  * `toSmsTunnel($notifiable)` method and the notifiable a `routeNotificationForSmstunnel()` method.
+ *
+ * Every text goes out with an `Idempotency-Key` made from the notification's id (or the message's own key) and the
+ * number. Laravel keeps a notification's id when the queue retries it, so for 24 hours a retry gets the first answer
+ * back from SMSTunnel instead of texting the same number twice.
  */
 class SmsTunnelChannel
 {
@@ -47,7 +51,7 @@ class SmsTunnelChannel
                 return null;
             }
 
-            $message = $this->getMessage($notifiable, $notification);
+            $message = $this->withDefaultIdempotencyKey($this->getMessage($notifiable, $notification), $notification);
         } catch (\Throwable $exception) {
             $this->failed($notifiable, $notification, $exception, null);
 
@@ -76,10 +80,45 @@ class SmsTunnelChannel
     {
         $deviceId = $message->deviceId ?? $this->deviceId;
         $defaultCountryCode = $message->defaultCountryCode ?? $this->defaultCountryCode;
+        $idempotencyKey = $this->idempotencyKeyFor($number, $message);
 
         return $message->isVerificationCode()
-            ? $this->client->sendVerificationCode($number, $message->content, $deviceId, $defaultCountryCode)
-            : $this->client->sendSms($number, $message->content, $deviceId, $defaultCountryCode);
+            ? $this->client->sendVerificationCode($number, $message->content, $deviceId, $defaultCountryCode, $idempotencyKey)
+            : $this->client->sendSms($number, $message->content, $deviceId, $defaultCountryCode, $idempotencyKey);
+    }
+
+    /**
+     * The message with what its texts' keys are made from: its own key, or else the notification's id (on a copy,
+     * so a message the notification keeps is never changed). Without either, the texts go out without a key.
+     *
+     * @throws \InvalidArgumentException when the message's own key is empty
+     */
+    protected function withDefaultIdempotencyKey(SmsTunnelMessage $message, Notification $notification): SmsTunnelMessage
+    {
+        if (\is_string($message->idempotencyKey)) {
+            if (trim($message->idempotencyKey) === '') {
+                throw new \InvalidArgumentException('The idempotency key is empty. Leave it out to use the notification\'s id, or call withoutIdempotencyKey().');
+            }
+
+            return $message;
+        }
+
+        /** @var mixed $id Laravel sets it when it sends or queues the notification; null when the channel is called directly. */
+        $id = $notification->id;
+        if ($message->idempotencyKey === false || (! \is_string($id) && ! \is_int($id)) || trim((string) $id) === '') {
+            return $message;
+        }
+
+        return (clone $message)->idempotencyKey((string) $id);
+    }
+
+    /**
+     * The `Idempotency-Key` for one number: a SHA-256 of the message's key and the number, so each number of a list
+     * gets its own and the same text to the same number always gets the same one. Null when the message has no key.
+     */
+    protected function idempotencyKeyFor(string $number, SmsTunnelMessage $message): ?string
+    {
+        return \is_string($message->idempotencyKey) ? hash('sha256', $message->idempotencyKey."\n".$number) : null;
     }
 
     /**

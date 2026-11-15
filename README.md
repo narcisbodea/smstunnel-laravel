@@ -21,6 +21,7 @@ Your phone needs the SMSTunnel app from Google Play:
   - [Verification codes](#verification-codes)
   - [Several numbers](#several-numbers)
   - [Failures](#failures)
+  - [Retrying safely](#retrying-safely)
   - [The client on its own](#the-client-on-its-own)
 - [Notes and limits](#notes-and-limits)
 - [Build it with an AI assistant](#build-it-with-an-ai-assistant)
@@ -122,6 +123,8 @@ Notifications that implement `ShouldQueue` are sent from your queue like any oth
 | `deviceId(?string $deviceId)` | Send through this phone instead of `services.smstunnel.device_id`. |
 | `defaultCountryCode(?string $code)` | E.g. `+40`, for numbers given without `+` or `00`. Wins over `services.smstunnel.default_country_code`. |
 | `verificationCode(bool $value = true)` | Send it as a sign-in or verification code (see below). |
+| `idempotencyKey(?string $key)` | Make the text's `Idempotency-Key` from your own key instead of the notification's id (see [Retrying safely](#retrying-safely)). |
+| `withoutIdempotencyKey()` | Send the text without an `Idempotency-Key`, as in 1.0. |
 
 ### Verification codes
 
@@ -136,7 +139,7 @@ SMSTunnel checks that the text contains the code, 4 to 10 digits (such as `48291
 
 ### Several numbers
 
-If `routeNotificationForSmstunnel()` returns a list of numbers, the channel sends one text to each of them (repeats are skipped). The `NotificationSent` event then carries a list of results.
+If `routeNotificationForSmstunnel()` returns a list of numbers, the channel sends one text to each of them (repeats are skipped). The `NotificationSent` event then carries a list of results. Each number gets its own `Idempotency-Key`, so when your queue retries the notification after one number failed, the numbers that already got the text are not texted again.
 
 ### Failures
 
@@ -160,10 +163,32 @@ The exceptions come from `smstunnel/smstunnel-php`, all under `SmsTunnel\Excepti
 | `AuthenticationException` (401) | The API key is wrong, was deleted, or its account is suspended. |
 | `PermissionException` (403) | The key lacks a permission, or the plan does not include the feature. |
 | `RateLimitException` (429) | Too many requests; `getRetryAfter()` says how many seconds to wait. A queued notification is retried by your queue. |
-| `ApiException` | Any other error answer, e.g. 400 for a number SMSTunnel cannot read or a verification text without a code. |
+| `ApiException` | Any other error answer, e.g. 400 for a number SMSTunnel cannot read or a verification text without a code, or 409 and 422 for the `Idempotency-Key` (see below). |
 | `TransportException` | SMSTunnel could not be reached. |
 
 A missing API key throws `NotificationChannels\SmsTunnel\Exceptions\InvalidConfiguration`; a notification without `toSmsTunnel()` throws `CouldNotSendNotification`.
+
+### Retrying safely
+
+Every text goes out with an `Idempotency-Key` made from the notification's id and the number. Laravel gives each notification its own id and keeps it when your queue retries the job, so for 24 hours a retry can't text the same number twice: SMSTunnel answers it with the first result (the same `messageId`). This works with no changes to your notifications.
+
+A new `notify()` call is a new notification with a new id. To text once per order even when your app sends the notification twice, give the text your own key:
+
+```php
+public function toSmsTunnel(object $notifiable): SmsTunnelMessage
+{
+    return SmsTunnelMessage::create("Your order #{$this->order->id} has shipped.")
+        ->idempotencyKey("order-{$this->order->id}-shipped");
+}
+```
+
+The channel then makes each number's key from yours and the number.
+
+- Build the text from the notification's own data, not from the time it is sent. A retry with other words is refused with an `ApiException` (422, `getErrorCode()` `IDEMPOTENCY_KEY_REUSED`), and nothing goes out.
+- A 409 (`IDEMPOTENCY_KEY_IN_PROGRESS`) means the first try is still running: the queue's next try gets its answer.
+- A server error (5xx) is kept with the key, because the text may have gone out before it: retries within 24 hours get the same error back. Check your dashboard before you send that text again.
+- `withoutIdempotencyKey()` sends the text without a key, as in 1.0: a retry can text the number again.
+- SMSTunnel remembers a key for 24 hours.
 
 ### The client on its own
 
@@ -207,7 +232,8 @@ How it works:
   key goes in .env as SMSTUNNEL_API_KEY.
 - In a notification, via() returns ['smstunnel'] and toSmsTunnel(object $notifiable) returns
   NotificationChannels\SmsTunnel\SmsTunnelMessage::create('...') or a plain string; message methods
-  content(), deviceId(), defaultCountryCode(), verificationCode().
+  content(), deviceId(), defaultCountryCode(), verificationCode(), idempotencyKey(),
+  withoutIdempotencyKey().
 - The notifiable's routeNotificationForSmstunnel(Notification $notification): ?string returns the
   number in international format; null or '' skips it, a list gets one text per number. Not a user:
   Notification::route('smstunnel', '+14155550123')->notify(...).
@@ -216,8 +242,10 @@ How it works:
 - Failures dispatch Illuminate\Notifications\Events\NotificationFailed (data: message, exception,
   to) and rethrow, all under SmsTunnel\Exception\SmsTunnelException: AuthenticationException 401,
   PermissionException 403, RateLimitException 429 (getRetryAfter()), ApiException (400, 5xx),
-  TransportException (network). Use ShouldQueue so a queue retries; with a list of numbers, a retry
-  texts all of them again.
+  TransportException (network). Use ShouldQueue so a queue retries. Every text goes out with an
+  Idempotency-Key made from the notification's id and the number, so for 24 hours a retry can't
+  text a number twice; ->idempotencyKey("order-{$order->id}-shipped") makes it from my own data
+  instead. A retry with other words gets ApiException 422 (IDEMPOTENCY_KEY_REUSED).
 - defaultCountryCode (e.g. +44) completes numbers written without + or 00 and always takes
   precedence over the phone's own country setting. Texts up to 1600 characters; 30 send requests a
   minute. If the phone is offline, the text waits and goes out when it is back.
@@ -231,8 +259,8 @@ Rules for your answer:
   placeholder.
 - Validate phone numbers before sending (international format, like +14155550123) and skip or report
   the invalid ones.
-- Handle errors: log or show what went wrong, retry only after 429, 5xx or network errors and only a
-  few times, and never send the same text twice.
+- Handle errors: log or show what went wrong. Let the queue retry a few times with a backoff, and
+  build each text from the notification's data so a retry sends the same words.
 - Only send texts people expect from me: alerts to myself, reminders, sign-in codes, updates they
   asked for. No unsolicited texts.
 ```
