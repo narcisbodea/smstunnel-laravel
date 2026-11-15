@@ -17,6 +17,7 @@ use NotificationChannels\SmsTunnel\Tests\Support\OrderShipped;
 use NotificationChannels\SmsTunnel\Tests\Support\SignInCode;
 use NotificationChannels\SmsTunnel\Tests\Support\User;
 use NotificationChannels\SmsTunnel\Tests\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SmsTunnel\Exception\AuthenticationException;
 use SmsTunnel\Exception\RateLimitException;
 use SmsTunnel\Response\SendResult;
@@ -194,6 +195,54 @@ final class SmsTunnelChannelTest extends TestCase
         $channel = $this->app?->make(SmsTunnelChannel::class);
         self::assertInstanceOf(SmsTunnelChannel::class, $channel);
         $channel->send((new AnonymousNotifiable)->route('smstunnel', [['nested']]), new OrderShipped);
+    }
+
+    /**
+     * @return array<string, array{string|list<string>}>
+     */
+    public static function badNumbers(): array
+    {
+        return [
+            'a line break inside' => ["+1415\n5550199"],
+            'a carriage return and a line feed' => ["+1415\r\n5550199"],
+            'a tab' => ["+1415\t5550199"],
+            'a NUL byte inside' => ["+1415\x005550199"],
+            'a slash' => ['0721/5550199'],
+            'letters' => ['+1 415 FLOWERS 5550199'],
+            'one bad number in a list' => [['+14155550124', "+1415\n5550199"]],
+        ];
+    }
+
+    /**
+     * @param  string|list<string>  $route
+     */
+    #[DataProvider('badNumbers')]
+    public function test_a_number_with_other_characters_is_refused_before_anything_is_sent(string|array $route): void
+    {
+        $failed = $this->collect(NotificationFailed::class);
+
+        try {
+            (new User($route))->notify(new OrderShipped);
+            self::fail('No exception was thrown.');
+        } catch (CouldNotSendNotification $exception) {
+            self::assertStringContainsString('a number with characters other than digits, spaces', $exception->getMessage());
+            self::assertStringNotContainsString('5550199', $exception->getMessage(), 'the number stays out of the logs');
+        }
+
+        self::assertSame([], $this->transport->requests);
+        $ours = $this->ours($failed);
+        self::assertCount(1, $ours);
+        self::assertNull($ours[0]->data['to']);
+    }
+
+    public function test_the_usual_ways_of_writing_a_number_still_work(): void
+    {
+        (new User(['+1 (415) 555-0123', '0721.123.456', " +14155550124\n", '4155550125']))->notify(new OrderShipped);
+
+        self::assertSame(
+            ['+1 (415) 555-0123', '0721.123.456', '+14155550124', '4155550125'],
+            array_map(static fn (array $request): mixed => $request['json']['to'], $this->transport->requests),
+        );
     }
 
     public function test_an_empty_text_is_not_sent(): void

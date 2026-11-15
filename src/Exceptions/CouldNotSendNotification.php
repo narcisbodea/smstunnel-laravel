@@ -33,4 +33,13 @@ class CouldNotSendNotification extends \Exception
             get_debug_type($route),
         ));
     }
+
+    /** The number itself stays out of the message, which ends up in logs. */
+    public static function invalidNumber(): self
+    {
+        return new self(
+            'Notification was not sent. routeNotificationForSmstunnel() returned a number with characters other than digits, spaces, '
+            .'"+", "(", ")", "." and "-" (a line break or a tab, for example). Give it in international format, such as +14155550123.'
+        );
+    }
 }

@@ -17,13 +17,17 @@ use SmsTunnel\Response\SendResult;
  * Use it with `via()` returning `['smstunnel']` or `[SmsTunnelChannel::class]`; the notification needs a
  * `toSmsTunnel($notifiable)` method and the notifiable a `routeNotificationForSmstunnel()` method.
  *
- * Every text goes out with an `Idempotency-Key` made from the notification's id (or the message's own key) and the
- * number. Laravel keeps a notification's id when the queue retries it, so for 24 hours a retry gets the first answer
- * back from SMSTunnel instead of texting the same number twice.
+ * Every text goes out with an `Idempotency-Key` made from the notification's id (or the message's own key) and what
+ * SMSTunnel compares for a repeat: the number, the words, the phone, the country code and the kind of text. Laravel
+ * keeps a notification's id when the queue retries it, so for 24 hours a retry of the same text gets the first answer
+ * back from SMSTunnel instead of texting the same number twice; a retry with other words is a new text.
  */
 class SmsTunnelChannel
 {
     public const NAME = 'smstunnel';
+
+    /** A number as the channel sends it, once trimmed: digits, spaces, `+`, `(`, `)`, `.` and `-`, nothing else. */
+    private const NUMBER = '/^[+0-9 ().-]+$/D';
 
     public function __construct(
         protected Client $client,
@@ -80,7 +84,7 @@ class SmsTunnelChannel
     {
         $deviceId = $message->deviceId ?? $this->deviceId;
         $defaultCountryCode = $message->defaultCountryCode ?? $this->defaultCountryCode;
-        $idempotencyKey = $this->idempotencyKeyFor($number, $message);
+        $idempotencyKey = $this->idempotencyKeyFor($number, $message, $deviceId, $defaultCountryCode);
 
         return $message->isVerificationCode()
             ? $this->client->sendVerificationCode($number, $message->content, $deviceId, $defaultCountryCode, $idempotencyKey)
@@ -113,12 +117,33 @@ class SmsTunnelChannel
     }
 
     /**
-     * The `Idempotency-Key` for one number: a SHA-256 of the message's key and the number, so each number of a list
-     * gets its own and the same text to the same number always gets the same one. Null when the message has no key.
+     * The `Idempotency-Key` for one text: a SHA-256 of the message's key and everything SMSTunnel compares for a repeat
+     * (the number, the words, the phone, the country code and the kind of text, as they go out), encoded as a JSON
+     * array so no two of them can run together. Each number of a list gets its own; the same text to the same number
+     * always gets the same one, and other words get another (a new text, not a repeat SMSTunnel would refuse). Null
+     * when the message has no key.
      */
-    protected function idempotencyKeyFor(string $number, SmsTunnelMessage $message): ?string
+    protected function idempotencyKeyFor(string $number, SmsTunnelMessage $message, ?string $deviceId, ?string $defaultCountryCode): ?string
     {
-        return \is_string($message->idempotencyKey) ? hash('sha256', $message->idempotencyKey."\n".$number) : null;
+        if (! \is_string($message->idempotencyKey)) {
+            return null;
+        }
+
+        // Text that is not UTF-8 still gets a key here; the client then refuses it before anything is sent.
+        return hash('sha256', json_encode([
+            $message->idempotencyKey,
+            $number,
+            $message->content,
+            self::asSent($deviceId),
+            self::asSent($defaultCountryCode),
+            $message->isVerificationCode() ? '2fa' : 'sms',
+        ], \JSON_UNESCAPED_UNICODE | \JSON_UNESCAPED_SLASHES | \JSON_INVALID_UTF8_SUBSTITUTE | \JSON_THROW_ON_ERROR));
+    }
+
+    /** An optional field as the client sends it: trimmed, and left out (null) when empty. */
+    private static function asSent(?string $value): ?string
+    {
+        return $value === null || trim($value) === '' ? null : trim($value);
     }
 
     /**
@@ -139,7 +164,8 @@ class SmsTunnelChannel
     /**
      * @return list<string> the numbers to text, without blanks and repeats
      *
-     * @throws CouldNotSendNotification
+     * @throws CouldNotSendNotification when the route is not a number or a list of them, or a number has other
+     *                                  characters than digits, spaces, `+`, `(`, `)`, `.` and `-` (a line break, say)
      */
     protected function numbersOf(mixed $route): array
     {
@@ -153,7 +179,13 @@ class SmsTunnelChannel
                 throw CouldNotSendNotification::invalidReceiver($route);
             }
             $number = trim((string) $number);
-            if ($number !== '' && ! \in_array($number, $numbers, true)) {
+            if ($number === '') {
+                continue;
+            }
+            if (preg_match(self::NUMBER, $number) !== 1) {
+                throw CouldNotSendNotification::invalidNumber();
+            }
+            if (! \in_array($number, $numbers, true)) {
                 $numbers[] = $number;
             }
         }

@@ -26,8 +26,8 @@ class SmsTunnelMessage
     public bool $verificationCode = false;
 
     /**
-     * What the text's `Idempotency-Key` is made from, together with the number: your own key, null for the
-     * notification's id (the default), or false to send without one.
+     * What the text's `Idempotency-Key` is made from, together with the number and the text itself: your own key, null
+     * for the notification's id (the default), or false to send without one.
      */
     public string|false|null $idempotencyKey = null;
 
@@ -81,7 +81,7 @@ class SmsTunnelMessage
     /**
      * Make the text's `Idempotency-Key` from this instead of the notification's id, for example
      * `"order-{$order->id}-shipped"`: the same order's text then goes out once per number, even when your app sends
-     * the notification twice. Null goes back to the notification's id.
+     * the notification twice (with other words it is a new text, and goes out). Null goes back to the notification's id.
      */
     public function idempotencyKey(?string $idempotencyKey): static
     {
